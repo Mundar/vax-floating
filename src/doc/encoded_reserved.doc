@@ -1,0 +1,35 @@
+## Error-Encoded Reserved
+
+All VAX floating-point types have a reserved value that has an exponent of zero
+and the sign-bit set, and would trigger a reserved operand fault.
+
+Whenever any operation (that doesn't return a [`Result`]) creates a value that
+cannot be represented as the VAX floating-point type, it will be set to a
+reserved value, and the error type will be encoded into the fractional portion
+of the type.
+
+The two most-significant bits in the fraction are used to indicate the error
+type. If the two bits are `00`, then it is a divide-by-zero error; If the two
+bits are `01`, it is an underflow error; If the two bits are `10`, it is an
+overflow error; and of the two bits are `11`, it is any other error.
+
+For overflow and underflow errors, the value of the exponent that caused the
+overflow or underflow is placed in the most significant 16-bits that don't
+contain the sign, exponent, or error bits. For FFloating, DFloating, and
+GFloating types, the exponent bits are bits 16-31, and for the HFloating type,
+the exponent bits are bits 32-47. If the exponent is out of range, then the
+exponent bits are set to 0. Because the error uses `i32` as its type, and the
+high 16-bits are assumed by the error type, the range stored in the encoded
+reserved value is 1 through 65535 for overflow, and -1 through -65535 for
+underflow.
+
+Due to this encoding, any VAX floting-point type can be converted into a
+[`Result`].
+
+```rust
+use vax_floating::{FFloating, Error, Result};
+
+let overflow = FFloating::from_f32(f32::MAX);
+assert!(overflow.is_reserved());
+assert_eq!(<Result<FFloating>>::from(overflow), Err(Error::Overflow(Some(128))));
+```

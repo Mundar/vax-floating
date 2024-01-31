@@ -1,0 +1,47 @@
+## Floating-point Type Differences between VAX and IEEE 754
+
+* The VAX uses a unique byte ordering for the floating-point values. Each set
+  of 16-bit values is in little endian order, but the 16-bit byte-pairs are in
+  big-endian order. The first (lowest address) 16-bits of the VAX
+  floating-point types contain the sign bit, the exponent, and, usually, the
+  most significant bits of the fraction. The last (highest addressed) 16-bits
+  of the VAX floating-point types contain the least significant bits of the
+  fraction.
+* The VAX doesn't support negative zero. An exponent value of zero with a sign
+  bit of 1 is a reserved value and would trigger a reserved operand fault.
+* The VAX doesn't support [subnormal numbers]. All values with a sign bit clear
+  and a exponent value of zero are considered to be zero.
+* The VAX doesn't have an Infinity value, which gives it one more exponent
+  value.
+* The VAX [exponent bias] is 2 more than the ones used in IEEE 754. Since VAX
+  doesn't support an infinity state, it has symetrical exponent values. For
+  example, the F_floating type has an exponent range from 127 to -127, whereas,
+  the [single-precision floating-point] type defined in IEEE 754 has an
+  exponent range from 128 to -125. (see note about differences between
+  exponents referred to in this documentation and how it is referenced to by
+  Wikipedia)
+* The VAX rounds differently than Rust. The VAX always rounds ties up, whereas,
+  the [`f32`] and [`f64`] types round according to the roundTiesToEven
+  direction defined in IEEE 754-2008.
+
+### Notes
+
+#### Wikipedia Exponents
+
+There is a difference between the exponent values in the Wikipedia reference
+documentation for IEEE 754, and exponent values in this documentation, the VAX
+documentation, and as defined in Rust as the `MIN_EXP` and `MAX_EXP` values in
+[`f32`] and [`f64`]).
+
+It comes down to how the implicit bit in the fraction portion of the
+floating-point is treated. In Wikipedia, the implicit bit is the
+least-significant non-fractional bit, and here it is the most-significant
+fractional bit.
+
+On Wikipedia, the range for values with exponent 0 is ≥ 1.0 and < 2.0. Here,
+the range for exponent 0 is ≥ 0.5 and < 1.0. Therefore, our exponent 0 is equal
+to Wikipedia's exponent -1.
+
+[exponent bias]: https://en.wikipedia.org/wiki/Exponent_bias
+[single-precision floating-point]: https://en.wikipedia.org/wiki/Single-precision_floating-point_format
+[subnormal numbers]: https://en.wikipedia.org/wiki/Subnormal_number
