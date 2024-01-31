@@ -16,10 +16,10 @@ This is a Rust implementation of the VAX floating-point types documented in the 
 
 VAX Type   | Size     | Exponent size | Exponent range
 -----------|----------|---------------|---------------
-[F_floating][FFloating] | 32-bits  |  8-bits       | 2<sup>127</sup> to 2<sup>-127</sup>
-[D_floating][DFloating] | 64-bits  |  8-bits       | 2<sup>127</sup> to 2<sup>-127</sup>
-[G_floating][GFloating] | 64-bits  |  11-bits      | 2<sup>1,023</sup> to 2<sup>-1,023</sup>
-[H_floating][HFloating] | 128-bits |  15-bits      | 2<sup>16,383</sup> to 2<sup>-16,383</sup>
+F_floating | 32-bits  |  8-bits       | 2<sup>127</sup> to 2<sup>-127</sup>
+D_floating | 64-bits  |  8-bits       | 2<sup>127</sup> to 2<sup>-127</sup>
+G_floating | 64-bits  |  11-bits      | 2<sup>1,023</sup> to 2<sup>-1,023</sup>
+H_floating | 128-bits |  15-bits      | 2<sup>16,383</sup> to 2<sup>-16,383</sup>
 
 ## Examples
 
@@ -79,7 +79,4 @@ assert_eq!(&format!("{:e}", very_small), "1e-1000");
 assert_eq!(&format!("{:.1E}", MANY_ZEROES), "1.0E32");
 assert_eq!(&format!("{:.3e}", four_fifty), "4.500e2");
 assert_eq!(&format!("{:.3}", four_fifty), "450.000");
-
-// This is a bug that I will fix later.
-assert_eq!(&format!("{:E}", MANY_ZEROES), "1.00000000000000000000000000000000E32");
 ```

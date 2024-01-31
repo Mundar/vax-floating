@@ -2495,4 +2495,16 @@ mod tests {
         ilog10_test!(u64);
         ilog10_test!(u128);
     }
+
+    #[test]
+    #[ignore]
+    fn minor_display_bug_1() {
+        const TENTH: DFloating = DFloating::from_ascii("0.1");
+        const ONE_HUNDRED: FFloating = FFloating::from_u8(100);
+        const MANY_ZEROES: HFloating = HFloating::from_u128(
+            100_000_000_000_000_000_000_000_000_000_000u128);
+        assert_eq!(&format!("{:e}", TENTH), "1e-1");
+        assert_eq!(&format!("{:e}", ONE_HUNDRED), "1e2");
+        assert_eq!(&format!("{:E}", MANY_ZEROES), "1E32");
+    }
 }
