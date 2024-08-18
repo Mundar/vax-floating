@@ -217,6 +217,150 @@ macro_rules! to_from_rust_fp_impl {
     };
 }
 
+macro_rules! vax_float_use_line {
+    (FFloating, FFloating) => {
+        "# use vax_floating::FFloating;"
+    };
+    (DFloating, DFloating) => {
+        "# use vax_floating::DFloating;"
+    };
+    (GFloating, GFloating) => {
+        "# use vax_floating::GFloating;"
+    };
+    (HFloating, HFloating) => {
+        "# use vax_floating::HFloating;"
+    };
+    ($SelfT: ident, $ToSelfT: ident) => {
+        concat!("# use vax_floating::{", stringify!($SelfT), ", ", stringify!($ToSelfT), "};")
+    };
+}
+
+/// Implement the functions that support converting to and from Rust floating point types (`f32` and
+/// `f64`).
+///
+/// This creates the constant functions 'to_f32()` and `from_f32()` for all VAX floating-point
+/// types, and `to_f64()` and 'from_f64()` for VAX floating-point types with a large enough
+/// fraction. USAGE: `to_from_vax_float_impl!(<unsigned type of fraction>, <VAX FP Struct>);`
+///
+/// This also creates the implementations for `From<f32>` for all VAX floating-point types and
+/// `From<f64>` for VAX floating-point types with a large enough fraction. It also creates the
+/// inverse `From<(F|D|G|H)Floating>` for `f32` and `f64`. USAGE:
+/// `to_from_rust_fp_impl!(From, <unsigned type of fraction>, <VAX FP Type>);`
+macro_rules! to_from_vax_float_impl {
+    (From, FFloating) => {
+        to_from_vax_float_impl!(From, FFloating, DFloating, to_f_floating, to_d_floating);
+        to_from_vax_float_impl!(From, FFloating, GFloating, to_f_floating, to_g_floating);
+        to_from_vax_float_impl!(From, FFloating, HFloating, to_f_floating, to_h_floating);
+    };
+    (From, DFloating) => {
+        to_from_vax_float_impl!(From, DFloating, GFloating, to_d_floating, to_g_floating);
+        to_from_vax_float_impl!(From, DFloating, HFloating, to_d_floating, to_h_floating);
+    };
+    (From, GFloating) => {
+        to_from_vax_float_impl!(From, GFloating, HFloating, to_g_floating, to_h_floating);
+    };
+    (From, HFloating) => {};
+    ($ux: ident, $SelfT: ident) => {
+        to_from_vax_float_impl!($ux, $SelfT, FFloating, to_f_floating, to_vfp_32, from_f_floating, from_vfp_32);
+        to_from_vax_float_impl!($ux, $SelfT, DFloating, to_d_floating, to_vfp_64, from_d_floating, from_vfp_64);
+        to_from_vax_float_impl!($ux, $SelfT, GFloating, to_g_floating, to_vfp_64, from_g_floating, from_vfp_64);
+        to_from_vax_float_impl!($ux, $SelfT, HFloating, to_h_floating, to_vfp_128, from_h_floating, from_vfp_128);
+    };
+    ($ux: ident, $SelfT: ident, $ToSelfT: ident, $to_fp_func: ident, $to_vfp: ident, $from_fp_func: ident, $from_vfp: ident) => {
+            #[doc = concat!("Convert from [`", stringify!($ToSelfT), "`] to a `", stringify!($SelfT), "`.")]
+            ///
+            /// Can be used to define constants.
+            ///
+            /// # Examples
+            ///
+            /// ```rust
+            #[doc = vax_float_use_line!($SelfT, $ToSelfT)]
+            #[doc = concat!("const FROM_ZERO: ", stringify!($ToSelfT), " = ", stringify!($ToSelfT),
+                "::from_bits(0);")]
+            #[doc = concat!("const FROM_THREE_HALVES: ", stringify!($ToSelfT), " = ",
+                stringify!($ToSelfT), "::from_f32(1.5);")]
+            #[doc = concat!("const ZERO: ", stringify!($SelfT), " = ", stringify!($SelfT), "::",
+                stringify!($from_fp_func), "(FROM_ZERO);")]
+            #[doc = concat!("const THREE_HALVES: ", stringify!($SelfT), " = ", stringify!($SelfT), "::",
+                stringify!($from_fp_func), "(FROM_THREE_HALVES);")]
+            #[doc = concat!("assert_eq!(", stringify!($SelfT), "::from_bits(0), ZERO);")]
+            #[doc = concat!("assert_eq!(", stringify!($SelfT), "::from_bits(", vax_fp_bits!($SelfT, 1.5), "), THREE_HALVES);")]
+            /// ```
+            ///
+            #[doc = concat!("`From<", stringify!($ToSelfT), ">` cannot be used to define constants.")]
+            ///
+            /// ```compile_fail
+            #[doc = vax_float_use_line!($SelfT, $ToSelfT)]
+            #[doc = concat!("const FROM_ZERO: ", stringify!($ToSelfT), " = ", stringify!($ToSelfT),
+                "::from_bits(0);")]
+            #[doc = concat!("const ZERO: ", stringify!($SelfT), " = ", stringify!($SelfT),
+                "::from(FROM_ZERO);")]
+            /// ```
+            pub const fn $from_fp_func(src: $ToSelfT) -> Self {
+                Self::from_fp(VaxFloatingPoint::<$ux>::$from_vfp(src.to_fp()))
+            }
+
+            #[doc = concat!("Convert from a `", stringify!($SelfT), "` to [`",
+                stringify!($ToSelfT), "`].")]
+            ///
+            /// Can be used to define constants.
+            ///
+            /// # Examples
+            ///
+            /// ```rust
+            #[doc = vax_float_use_line!($SelfT, $ToSelfT)]
+            #[doc = concat!("const FROM_ZERO: ", stringify!($SelfT), " = ", stringify!($SelfT),
+                "::from_bits(0);")]
+            #[doc = concat!("const FROM_THREE_HALVES: ", stringify!($SelfT), " = ",
+                stringify!($SelfT), "::from_bits(", vax_fp_bits!($SelfT, 1.5), ");")]
+            #[doc = concat!("const ZERO: ", stringify!($ToSelfT), " = FROM_ZERO.",
+                stringify!($to_fp_func), "();")]
+            #[doc = concat!("const THREE_HALVES: ", stringify!($ToSelfT), " = FROM_THREE_HALVES.",
+                stringify!($to_fp_func), "();")]
+            #[doc = concat!("assert_eq!(ZERO, ", stringify!($ToSelfT), "::from_bits(0));")]
+            #[doc = concat!("assert_eq!(THREE_HALVES, ", stringify!($ToSelfT), "::from_f32(1.5));")]
+            /// ```
+            ///
+            #[doc = concat!("`From<", stringify!($SelfT), ">` cannot be used to define constants.")]
+            ///
+            /// ```compile_fail
+            #[doc = vax_float_use_line!($SelfT, $ToSelfT)]
+            #[doc = concat!("const FROM_ZERO: ", stringify!($SelfT), " = ", stringify!($SelfT),
+                "::from_bits(0);")]
+            #[doc = concat!("const ZERO: ", stringify!($ToSelfT), " = ", stringify!($ToSelfT),
+                "::from(FROM_ZERO);")]
+            /// ```
+            pub const fn $to_fp_func(&self) -> $ToSelfT {
+                $ToSelfT::from_fp(self.to_fp().$to_vfp())
+            }
+    };
+    (From, $SelfT: ident, $OtherT: ident, $to_self: ident, $to_other: ident) => {
+        impl From<&$OtherT> for $SelfT {
+            fn from(src: &$OtherT) -> Self {
+                src.$to_self()
+            }
+        }
+
+        impl From<$OtherT> for $SelfT {
+            fn from(src: $OtherT) -> Self {
+                src.$to_self()
+            }
+        }
+
+        impl From<&$SelfT> for $OtherT {
+            fn from(src: &$SelfT) -> Self {
+                src.$to_other()
+            }
+        }
+
+        impl From<$SelfT> for $OtherT {
+            fn from(src: $SelfT) -> Self {
+                src.$to_other()
+            }
+        }
+    };
+}
+
 /// The documentation to display for lossy `from_*()` and `From<*>` conversions to
 /// VAX floating point types.
 macro_rules! from_int_lossy_doc {
@@ -1446,11 +1590,15 @@ macro_rules! floating_impl {
             from_rust_int_impl!($ux, $SelfT);
 
             to_from_rust_fp_impl!($ux, $SelfT);
+
+            to_from_vax_float_impl!($ux, $SelfT);
         }
 
         from_rust_int_impl!(From, $ux, $SelfT);
 
         to_from_rust_fp_impl!(From, $ux, $SelfT);
+
+        to_from_vax_float_impl!(From, $SelfT);
 
         impl From<$SelfT> for Result<$SelfT> {
             fn from(float: $SelfT) -> Result<$SelfT> {
@@ -2504,7 +2652,63 @@ mod tests {
         const MANY_ZEROES: HFloating = HFloating::from_u128(
             100_000_000_000_000_000_000_000_000_000_000u128);
         assert_eq!(&format!("{:e}", TENTH), "1e-1");
-        assert_eq!(&format!("{:e}", ONE_HUNDRED), "1e2");
-        assert_eq!(&format!("{:E}", MANY_ZEROES), "1E32");
+        assert_eq!(&format!("{:e}", ONE_HUNDRED), "1e2");   // Fails with 1.00e2
+        assert_eq!(&format!("{:E}", MANY_ZEROES), "1E32");  // Fails with 1.00000000000000000000000000000000E32
+    }
+
+    proptest! {
+        fn from_h_floating_tests(
+            h_floating in any::<HFloating>(),
+        ) {
+            let float_as_text = h_floating.to_string();
+            let f_float = h_floating.to_f_floating();
+            let d_float = h_floating.to_d_floating();
+            let g_float = h_floating.to_g_floating();
+            assert_eq!(f_float, FFloating::from_str(&float_as_text).unwrap());
+            assert_eq!(d_float, DFloating::from_str(&float_as_text).unwrap());
+            assert_eq!(g_float, GFloating::from_str(&float_as_text).unwrap());
+        }
+    }
+
+    proptest! {
+        fn from_g_floating_tests(
+            g_floating in any::<GFloating>(),
+        ) {
+            let float_as_text = g_floating.to_string();
+            let f_float = g_floating.to_f_floating();
+            let d_float = g_floating.to_d_floating();
+            let h_float = g_floating.to_h_floating();
+            assert_eq!(f_float, FFloating::from_str(&float_as_text).unwrap());
+            assert_eq!(d_float, DFloating::from_str(&float_as_text).unwrap());
+            assert_eq!(h_float, HFloating::from_str(&float_as_text).unwrap());
+        }
+    }
+
+    proptest! {
+        fn from_d_floating_tests(
+            d_floating in any::<DFloating>(),
+        ) {
+            let float_as_text = d_floating.to_string();
+            let f_float = d_floating.to_f_floating();
+            let g_float = d_floating.to_g_floating();
+            let h_float = d_floating.to_h_floating();
+            assert_eq!(f_float, FFloating::from_str(&float_as_text).unwrap());
+            assert_eq!(g_float, GFloating::from_str(&float_as_text).unwrap());
+            assert_eq!(h_float, HFloating::from_str(&float_as_text).unwrap());
+        }
+    }
+
+    proptest! {
+        fn from_f_floating_tests(
+            f_floating in any::<FFloating>(),
+        ) {
+            let float_as_text = f_floating.to_string();
+            let d_float = f_floating.to_d_floating();
+            let g_float = f_floating.to_g_floating();
+            let h_float = f_floating.to_h_floating();
+            assert_eq!(d_float, DFloating::from_str(&float_as_text).unwrap());
+            assert_eq!(g_float, GFloating::from_str(&float_as_text).unwrap());
+            assert_eq!(h_float, HFloating::from_str(&float_as_text).unwrap());
+        }
     }
 }

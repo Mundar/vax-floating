@@ -563,6 +563,251 @@ impl<T: UpperHex> Debug for VaxFloatingPoint<T> {
     }
 }
 
+/// Implement the functions that convert the different `VaxFloatingPoint` types into each other.
+macro_rules! to_from_vax_fp_impl {
+    (u32) => {
+        to_from_vax_fp_impl!(same, u32, from_vfp_32, to_vfp_32);
+        to_from_vax_fp_impl!(up, u32, u64, from_vfp_64, to_vfp_64);
+        to_from_vax_fp_impl!(up, u32, u128, from_vfp_128, to_vfp_128);
+    };
+    (u64) => {
+        to_from_vax_fp_impl!(down, u64, u32, from_vfp_32, to_vfp_32);
+        to_from_vax_fp_impl!(same, u64, from_vfp_64, to_vfp_64);
+        to_from_vax_fp_impl!(up, u64, u128, from_vfp_128, to_vfp_128);
+    };
+    (u128) => {
+        to_from_vax_fp_impl!(down, u128, u32, from_vfp_32, to_vfp_32);
+        to_from_vax_fp_impl!(down, u128, u64, from_vfp_64, to_vfp_64);
+        to_from_vax_fp_impl!(same, u128, from_vfp_128, to_vfp_128);
+    };
+    (up, $fux: ident, $tux: ident, $from_vfp: ident, $to_vfp: ident) => {
+        #[doc = concat!("Convert from [`VaxFloatingPoint<", stringify!($tux), ">`] to `VaxFloatingPoint<",
+            stringify!($fux), ">`.")]
+        ///
+        /// Can be used to define constants.
+        ///
+        /// # Examples
+        ///
+        /// ```rust
+        /// # use vax_floating::arithmetic::VaxFloatingPoint;
+        #[doc = concat!("const ZERO: VaxFloatingPoint<", stringify!($tux),
+            "> = VaxFloatingPoint::<", stringify!($tux), ">::from_u8(0);")]
+        #[doc = concat!("const TEN: VaxFloatingPoint<", stringify!($tux),
+            "> = VaxFloatingPoint::<", stringify!($tux), ">::from_u8(10);")]
+        #[doc = concat!("const FROM_ZERO: VaxFloatingPoint<", stringify!($fux),
+            "> = VaxFloatingPoint::<", stringify!($fux), ">::", stringify!($from_vfp), "(ZERO);")]
+        #[doc = concat!("const FROM_TEN: VaxFloatingPoint<", stringify!($fux),
+            "> = VaxFloatingPoint::<", stringify!($fux), ">::", stringify!($from_vfp), "(TEN);")]
+        #[doc = concat!("assert_eq!(VaxFloatingPoint::<", stringify!($fux),
+            ">::from_u8(0), FROM_ZERO);")]
+        #[doc = concat!("assert_eq!(VaxFloatingPoint::<", stringify!($fux),
+            ">::from_u8(10), FROM_TEN);")]
+        /// ```
+        ///
+        #[doc = concat!("`From<VaxFloatingPoint::<", stringify!($fx),
+            ">>` cannot be used to define constants.")]
+        ///
+        /// ```compile_fail
+        /// # use vax_floating::arithmetic::VaxFloatingPoint;
+        #[doc = concat!("const ZERO: VaxFloatingPoint<", stringify!($tux),
+            "> = VaxFloatingPoint::<", stringify!($tux), ">::from_u8(0);")]
+        #[doc = concat!("const FROM_ZERO: VaxFloatingPoint<", stringify!($fux),
+            "> = VaxFloatingPoint::<", stringify!($fux), ">::from(ZERO);")]
+        /// ```
+        pub const fn $from_vfp(src: VaxFloatingPoint<$tux>) -> Self {
+            Self {
+                sign: src.sign,
+                exp: src.exp,
+                frac: (src.frac >> (<$tux>::BITS - <$fux>::BITS)) as $fux,
+                fault: src.fault,
+            }
+        }
+
+        #[doc = concat!("Convert to `VaxFloatingPoint<", stringify!($tux),
+            ">` from [`VaxFloatingPoint<", stringify!($fux), ">`].")]
+        ///
+        ///
+        /// # Examples
+        ///
+        /// ```rust
+        /// # use vax_floating::arithmetic::VaxFloatingPoint;
+        #[doc = concat!("const FROM_ZERO: VaxFloatingPoint<", stringify!($fux),
+            "> = VaxFloatingPoint::<", stringify!($fux), ">::from_u8(0);")]
+        #[doc = concat!("const FROM_TEN: VaxFloatingPoint<", stringify!($fux),
+            "> = VaxFloatingPoint::<", stringify!($fux), ">::from_u8(10);")]
+        #[doc = concat!("assert_eq!(FROM_ZERO.", stringify!($to_vfp), "(), VaxFloatingPoint::<",
+            stringify!($tux),">::from_u8(0));")]
+        #[doc = concat!("assert_eq!(FROM_TEN.", stringify!($to_vfp), "(), VaxFloatingPoint::<",
+            stringify!($tux),">::from_u8(10));")]
+        /// ```
+        pub const fn $to_vfp(self) -> VaxFloatingPoint<$tux> {
+            VaxFloatingPoint::<$tux> {
+                sign: self.sign,
+                exp: self.exp,
+                frac: (self.frac as $tux) << (<$tux>::BITS - <$fux>::BITS),
+                fault: self.fault,
+            }
+        }
+    };
+    (down, $fux: ident, $tux: ident, $from_vfp: ident, $to_vfp: ident) => {
+        #[doc = concat!("Convert from [`VaxFloatingPoint<", stringify!($tux), ">`] to `VaxFloatingPoint<",
+            stringify!($fux), ">`.")]
+        ///
+        /// Can be used to define constants.
+        ///
+        /// # Examples
+        ///
+        /// ```rust
+        /// # use vax_floating::arithmetic::VaxFloatingPoint;
+        #[doc = concat!("const ZERO: VaxFloatingPoint<", stringify!($tux),
+            "> = VaxFloatingPoint::<", stringify!($tux), ">::from_u8(0);")]
+        #[doc = concat!("const TEN: VaxFloatingPoint<", stringify!($tux),
+            "> = VaxFloatingPoint::<", stringify!($tux), ">::from_u8(10);")]
+        #[doc = concat!("const FROM_ZERO: VaxFloatingPoint<", stringify!($fux),
+            "> = VaxFloatingPoint::<", stringify!($fux), ">::", stringify!($from_vfp), "(ZERO);")]
+        #[doc = concat!("const FROM_TEN: VaxFloatingPoint<", stringify!($fux),
+            "> = VaxFloatingPoint::<", stringify!($fux), ">::", stringify!($from_vfp), "(TEN);")]
+        #[doc = concat!("assert_eq!(VaxFloatingPoint::<", stringify!($fux),
+            ">::from_u8(0), FROM_ZERO);")]
+        #[doc = concat!("assert_eq!(VaxFloatingPoint::<", stringify!($fux),
+            ">::from_u8(10), FROM_TEN);")]
+        /// ```
+        ///
+        #[doc = concat!("`From<VaxFloatingPoint::<", stringify!($fx),
+            ">>` cannot be used to define constants.")]
+        ///
+        /// ```compile_fail
+        /// # use vax_floating::arithmetic::VaxFloatingPoint;
+        #[doc = concat!("const ZERO: VaxFloatingPoint<", stringify!($tux),
+            "> = VaxFloatingPoint::<", stringify!($tux), ">::from_u8(0);")]
+        #[doc = concat!("const FROM_ZERO: VaxFloatingPoint<", stringify!($fux),
+            "> = VaxFloatingPoint::<", stringify!($fux), ">::from(ZERO);")]
+        /// ```
+        pub const fn $from_vfp(src: VaxFloatingPoint<$tux>) -> Self {
+            Self {
+                sign: src.sign,
+                exp: src.exp,
+                frac: (src.frac as $fux) << (<$fux>::BITS - <$tux>::BITS),
+                fault: src.fault,
+            }
+        }
+
+        #[doc = concat!("Convert to `VaxFloatingPoint<", stringify!($tux),
+            ">` from [`VaxFloatingPoint<", stringify!($fux), ">`].")]
+        ///
+        ///
+        /// # Examples
+        ///
+        /// ```rust
+        /// # use vax_floating::arithmetic::VaxFloatingPoint;
+        #[doc = concat!("const FROM_ZERO: VaxFloatingPoint<", stringify!($fux),
+            "> = VaxFloatingPoint::<", stringify!($fux), ">::from_u8(0);")]
+        #[doc = concat!("const FROM_TEN: VaxFloatingPoint<", stringify!($fux),
+            "> = VaxFloatingPoint::<", stringify!($fux), ">::from_u8(10);")]
+        #[doc = concat!("assert_eq!(FROM_ZERO.", stringify!($to_vfp), "(), VaxFloatingPoint::<",
+            stringify!($tux),">::from_u8(0));")]
+        #[doc = concat!("assert_eq!(FROM_TEN.", stringify!($to_vfp), "(), VaxFloatingPoint::<",
+            stringify!($tux),">::from_u8(10));")]
+        /// ```
+        pub const fn $to_vfp(self) -> VaxFloatingPoint<$tux> {
+            VaxFloatingPoint::<$tux> {
+                sign: self.sign,
+                exp: self.exp,
+                frac: (self.frac >> (<$fux>::BITS - <$tux>::BITS)) as $tux,
+                fault: self.fault,
+            }
+        }
+    };
+    (same, $ux: ident, $from_vfp: ident, $to_vfp: ident) => {
+        #[doc = concat!("Convert from [`VaxFloatingPoint<", stringify!($ux), ">`] to `VaxFloatingPoint<",
+            stringify!($ux), ">`.")]
+        ///
+        /// Can be used to define constants.
+        ///
+        /// # Examples
+        ///
+        /// ```rust
+        /// # use vax_floating::arithmetic::VaxFloatingPoint;
+        #[doc = concat!("const ZERO: VaxFloatingPoint<", stringify!($ux),
+            "> = VaxFloatingPoint::<", stringify!($ux), ">::from_u8(0);")]
+        #[doc = concat!("const TEN: VaxFloatingPoint<", stringify!($ux),
+            "> = VaxFloatingPoint::<", stringify!($ux), ">::from_u8(10);")]
+        #[doc = concat!("const FROM_ZERO: VaxFloatingPoint<", stringify!($ux),
+            "> = VaxFloatingPoint::<", stringify!($ux), ">::", stringify!($from_vfp), "(ZERO);")]
+        #[doc = concat!("const FROM_TEN: VaxFloatingPoint<", stringify!($ux),
+            "> = VaxFloatingPoint::<", stringify!($ux), ">::", stringify!($from_vfp), "(TEN);")]
+        #[doc = concat!("assert_eq!(VaxFloatingPoint::<", stringify!($ux),
+            ">::from_u8(0), FROM_ZERO);")]
+        #[doc = concat!("assert_eq!(VaxFloatingPoint::<", stringify!($ux),
+            ">::from_u8(10), FROM_TEN);")]
+        /// ```
+        ///
+        #[doc = concat!("`From<VaxFloatingPoint::<", stringify!($fx),
+            ">>` cannot be used to define constants.")]
+        ///
+        /// ```compile_fail
+        /// # use vax_floating::arithmetic::VaxFloatingPoint;
+        #[doc = concat!("const ZERO: VaxFloatingPoint<", stringify!($ux),
+            "> = VaxFloatingPoint::<", stringify!($ux), ">::from_u8(0);")]
+        #[doc = concat!("const FROM_ZERO: VaxFloatingPoint<", stringify!($ux),
+            "> = VaxFloatingPoint::<", stringify!($ux), ">::from(ZERO);")]
+        /// ```
+        pub const fn $from_vfp(src: VaxFloatingPoint<$ux>) -> Self {
+            src
+        }
+
+        #[doc = concat!("Convert to `VaxFloatingPoint<", stringify!($ux),
+            ">` from [`VaxFloatingPoint<", stringify!($ux), ">`].")]
+        ///
+        ///
+        /// # Examples
+        ///
+        /// ```rust
+        /// # use vax_floating::arithmetic::VaxFloatingPoint;
+        #[doc = concat!("const FROM_ZERO: VaxFloatingPoint<", stringify!($ux),
+            "> = VaxFloatingPoint::<", stringify!($ux), ">::from_u8(0);")]
+        #[doc = concat!("const FROM_TEN: VaxFloatingPoint<", stringify!($ux),
+            "> = VaxFloatingPoint::<", stringify!($ux), ">::from_u8(10);")]
+        #[doc = concat!("assert_eq!(FROM_ZERO.", stringify!($to_vfp), "(), VaxFloatingPoint::<",
+            stringify!($ux),">::from_u8(0));")]
+        #[doc = concat!("assert_eq!(FROM_TEN.", stringify!($to_vfp), "(), VaxFloatingPoint::<",
+            stringify!($ux),">::from_u8(10));")]
+        /// ```
+        pub const fn $to_vfp(self) -> VaxFloatingPoint<$ux> {
+            self
+        }
+    };
+    (From, $lux: ident, $hux: ident, $to_lux: ident, $to_hux: ident) => {
+        impl From<VaxFloatingPoint<$lux>> for VaxFloatingPoint<$hux> {
+            fn from(vfp: VaxFloatingPoint<$lux>) -> Self {
+                vfp.$to_hux()
+            }
+        }
+
+        impl From<&VaxFloatingPoint<$lux>> for VaxFloatingPoint<$hux> {
+            fn from(vfp: &VaxFloatingPoint<$lux>) -> Self {
+                vfp.$to_hux()
+            }
+        }
+
+        impl From<VaxFloatingPoint<$hux>> for VaxFloatingPoint<$lux> {
+            fn from(vfp: VaxFloatingPoint<$hux>) -> Self {
+                vfp.$to_lux()
+            }
+        }
+
+        impl From<&VaxFloatingPoint<$hux>> for VaxFloatingPoint<$lux> {
+            fn from(vfp: &VaxFloatingPoint<$hux>) -> Self {
+                vfp.$to_lux()
+            }
+        }
+    };
+}
+
+to_from_vax_fp_impl!(From, u32, u64, to_vfp_32, to_vfp_64);
+to_from_vax_fp_impl!(From, u32, u128, to_vfp_32, to_vfp_128);
+to_from_vax_fp_impl!(From, u64, u128, to_vfp_64, to_vfp_128);
+
 /// Implement the `VaxFloatingPoint` type for a specific fraction size.
 macro_rules! vfp_impl {
     (
@@ -1308,6 +1553,8 @@ macro_rules! vfp_impl {
             from_rust_int_impl!($ux);
 
             to_from_rust_fp_impl!($ux);
+
+            to_from_vax_fp_impl!($ux);
         }
 
         from_rust_int_impl!(From, $ux);

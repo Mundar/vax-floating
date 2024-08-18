@@ -4,6 +4,7 @@ This is a Rust implementation of the VAX floating-point types documented in the 
 
 - Supports conversion from rust data types.
 - Supports conversion from rust data types to constants.
+- Supports conversion between vax floating types (both constant and runtime).
 - Supports standard mathematical operators.
 - Supports constant mathematical operators.
 - Supports display, and lowercase and uppercase exponential output.
@@ -49,6 +50,28 @@ assert_eq!(ten, TEN);
 assert_eq!(ONE_FIFTY, DFloating::from_i32(150));
 assert_eq!(PI, GFloating::from_f64(std::f64::consts::PI));
 assert_eq!(MANY_ZEROES, HFloating::from_str("1.0e32").unwrap());
+
+// Supports conversion between VAX floating point types
+let ten_h = HFloating::from(ten);
+let three_hundred_g = GFloating::from(three_hundred);
+let twelve_point_five_f = FFloating::from(twelve_point_five);
+let pi_d = DFloating::from(PI);
+
+assert_eq!(ten_h, HFloating::from(10_u64));
+assert_eq!(three_hundred_g, GFloating::from(300_u32));
+assert_eq!(twelve_point_five_f, FFloating::from_str("12.5").unwrap());
+assert_eq!(pi_d, DFloating::from_f64(std::f64::consts::PI));
+
+// Supports conversion between VAX floating point types to constants
+const TEN_G: GFloating = TEN.to_g_floating();
+const ONE_FIFTY_H: HFloating = ONE_FIFTY.to_h_floating();
+const PI_F: FFloating = PI.to_f_floating();
+const MANY_ZEROES_D: DFloating = MANY_ZEROES.to_d_floating();
+
+assert_eq!(TEN_G, GFloating::from_u8(10));
+assert_eq!(ONE_FIFTY_H, HFloating::from_i32(150));
+assert_eq!(PI_F, FFloating::from_f32(std::f32::consts::PI));
+assert_eq!(MANY_ZEROES_D, DFloating::from_str("1.0e32").unwrap());
 
 // Supports standard mathematical operators.
 let one = TEN / ten;
