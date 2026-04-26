@@ -1878,8 +1878,8 @@ mod tests {
     create_pi_test!(g_floating_pi_test, GFloating, GFloating::DIGITS);
     create_pi_test!(h_floating_pi_test, HFloating, HFloating::DIGITS);
 
-    const MAX_FFLOATING: f32 = unsafe { std::mem::transmute::<u32, f32>(0x7EFFFFFF) };
-    const MIN_FFLOATING: f32 = unsafe { std::mem::transmute::<u32, f32>(0xFEFFFFFF) };
+    const MAX_FFLOATING: f32 = f32::from_bits(0x7EFFFFFF);
+    const MIN_FFLOATING: f32 = f32::from_bits(0xFEFFFFFF);
 
     prop_compose! {
         fn ffloating_f32_range(min: f32, max: f32)(float in min..=max) -> f32 {

@@ -1794,10 +1794,7 @@ macro_rules! to_from_rust_fp_impl {
             const EXP_BIAS: i32 = (1 << ($exp - 1)) - 2;
             const FRAC_MASK: $fu = (1 << EXP_SHIFT) - 1;
 
-            // SAFETY: According to the documentation for f(32/64)::to_bits, it is identical to
-            // `transmute::<f(32/64), u(32/64)>(self)` on all platforms. f(32/64)::to_bits is not
-            // const.
-            let bits = unsafe { std::mem::transmute::<$fx, $fu>(fp) };
+            let bits = fp.to_bits();
             if 0 == (bits & !SIGN) { return Self::ZERO; }
             let sign = if 0 == (bits & SIGN) { Sign::Positive } else { Sign::Negative };
             match (bits >> EXP_SHIFT) & EXP_MASK {
@@ -1857,7 +1854,7 @@ macro_rules! to_from_rust_fp_impl {
             const EXP_MASK: $fu = (1 << $exp) - 1;
             const EXP_BIAS: i32 = (1 << ($exp - 1)) - 2;
             const FRAC_MASK: $fu = (1 << EXP_SHIFT) - 1;
-            const MAX_NEGATIVE: $fx = unsafe { std::mem::transmute::<$fu, $fx>(SIGN+1) };
+            const MAX_NEGATIVE: $fx = $fx::from_bits(SIGN+1);
             const FRAC_SHIFT: u32 = <$ux>::BITS - $fx::MANTISSA_DIGITS;
             const ROUND: $ux = 1 << (FRAC_SHIFT - 1);
             const HIGH_BIT: $ux = 1 << (<$ux>::BITS - 1);
@@ -1909,10 +1906,7 @@ macro_rules! to_from_rust_fp_impl {
                         let bits = (if self.sign.is_negative() { SIGN } else { 0 }) |
                             ((((self.exp + EXP_BIAS) as $fu) & EXP_MASK) << EXP_SHIFT) |
                             (((self.frac >> FRAC_SHIFT) as $fu) & FRAC_MASK);
-                        // SAFETY: According to the documentation for f(32/64)::from_bits, it is
-                        // identical to `transmute::<u(32/64), f(32/64)>(self)` on all platforms.
-                        // f(32/64)::from_bits is not const.
-                        unsafe { std::mem::transmute::<$fu, $fx>(bits) }
+                        $fx::from_bits(bits)
                     }
                 }
             }
@@ -2177,7 +2171,7 @@ mod tests {
         pub const EXP_SHIFT: u32 = 23;
         pub const EXP_MASK: u32 = 0xFF;
         pub const EXP_BIAS: i32 = 0x7E;
-        pub const MAX_NEGATIVE: f32 = unsafe { std::mem::transmute::<u32, f32>(0x80000001) };
+        pub const MAX_NEGATIVE: f32 = f32::from_bits(0x80000001);
     }
 
     mod f64_consts {
@@ -2187,7 +2181,7 @@ mod tests {
         pub const EXP_SHIFT: u32 = 52;
         pub const EXP_MASK: u64 = 0x7FF;
         pub const EXP_BIAS: i32 = 0x3FE;
-        pub const MAX_NEGATIVE: f64 = unsafe { std::mem::transmute::<u64, f64>(0x8000000000000001) };
+        pub const MAX_NEGATIVE: f64 = f64::from_bits(0x8000000000000001);
     }
 
     macro_rules! verify_calc_consts {
@@ -2198,7 +2192,7 @@ mod tests {
                 const EXP_MASK: $fu = (1 << $exp) - 1;
                 const EXP_BIAS: i32 = (1 << ($exp - 1)) - 2;
                 const FRAC_MASK: $fu = (1 << EXP_SHIFT) - 1;
-                const MAX_NEGATIVE: $fx = unsafe { std::mem::transmute::<$fu, $fx>(SIGN+1) };
+                const MAX_NEGATIVE: $fx = $fx::from_bits(SIGN+1);
 
                 assert_eq!(SIGN, $mod::SIGN);
                 assert_eq!(EXP_SHIFT, $mod::EXP_SHIFT);
