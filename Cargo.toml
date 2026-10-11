@@ -1,6 +1,6 @@
 [package]
 name = "vax-floating"
-version = "0.3.0"
+version = "0.2.1"
 authors = ["Thomas Mundar <thomas@mundar.com>"]
 license = "MIT"
 readme = "README.md"
@@ -8,7 +8,7 @@ repository = "https://github.com/Mundar/vax-floating"
 keywords = ["VAX", "floating-point"]
 categories = ["data-structures", "mathematics"]
 edition = "2021"
-rust-version = "1.83.0"
+#rust-version = "1.67"
 description = "VAX floating-point types"
 
 [dependencies]
@@ -23,6 +23,9 @@ clap = { version = "4.4.11", features = ["derive"] }
 criterion = "0.5.1"
 proptest = "1.4.0"
 rand = "0.8.5"
+
+[build-dependencies]
+version_check = "0.9.5"
 
 [[bench]]
 name = "benchmarks"

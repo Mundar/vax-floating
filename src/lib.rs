@@ -44,6 +44,8 @@ pub use crate::{
     arithmetic::{Fault, Sign, VaxFloatingPoint},
 };
 
+include!(concat!(env!("OUT_DIR"), "/to_from_bits.rs"));
+
 /// Implement the `swap_words` function for a given unsigned integer type.
 macro_rules! swap_words_impl {
     (u32) => {
