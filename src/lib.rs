@@ -1045,7 +1045,7 @@ macro_rules! floating_impl {
             /// # Examples
             ///
             /// ```rust
-            #[doc = concat!("# use vax_floating::", stringify!($SelfT), ";")]
+            #[doc = concat!("# use vax_floating::{", stringify!($SelfT), ", error::Error};")]
             /// for (case, abs) in [
             ///     (0_f32, 0_f32), // Zero doesn't have a sign.
             ///     (1.5, 1.5),    // Positive isn't changed.
@@ -1053,6 +1053,9 @@ macro_rules! floating_impl {
             ///     (-0.04, 0.04),  // Negative to positive.
             /// ].iter() {
             #[doc = concat!("    assert_eq!(", stringify!($SelfT), "::from_f32(*case).abs(), ", stringify!($SelfT), "::from_f32(*abs));")]
+            ///
+            /// // An old bug allowed a reserved operand error to be removed by abs.
+            #[doc = concat!("    assert_eq!(", stringify!($SelfT), "::from_u8(1).divide_by(", stringify!($SelfT), "::from_u8(0)).abs().into(), Err(Error::DivByZero));")]
             /// }
             /// ```
             #[inline]
@@ -1771,6 +1774,7 @@ macro_rules! floating_impl {
                     .field("sign", &format_args!("{:?}", fp.sign()))
                     .field("exponent", &format_args!("{0}", fp.exponent()))
                     .field("frac", &format_args!("{:#X}", fp.fraction()))
+                    .field("display", &format_args!("\"{:e}\"", self))
                     .finish()
             }
         }
@@ -1880,8 +1884,8 @@ mod tests {
     create_pi_test!(g_floating_pi_test, GFloating, GFloating::DIGITS);
     create_pi_test!(h_floating_pi_test, HFloating, HFloating::DIGITS);
 
-    const MAX_FFLOATING: f32 = f32::from_bits(0x7EFFFFFF);
-    const MIN_FFLOATING: f32 = f32::from_bits(0xFEFFFFFF);
+    const MAX_FFLOATING: f32 = fp_from_bits!(f32, u32, 0x7EFFFFFF);
+    const MIN_FFLOATING: f32 = fp_from_bits!(f32, u32, 0xFEFFFFFF);
 
     prop_compose! {
         fn ffloating_f32_range(min: f32, max: f32)(float in min..=max) -> f32 {
@@ -2083,9 +2087,9 @@ mod tests {
     // compare the f32 to FFloating and f64 to GFloating. There are some rounding differences
     // between the VAX floating-point Display functions. This function compares the two strings and
     // check to see if they are within 2 of each other at the least significant digit.
-    pub fn display_close_enough(disp1: &str, disp2: &str, ok_diff: usize, fail_msg: &str) -> u128 {
-        if disp1 != disp2 {
-            close_enough_inner(disp1.to_string(), disp2.to_string(), disp1, disp2, ok_diff, fail_msg)
+    pub fn display_close_enough(vax_disp: &str, exp_disp: &str, ok_diff: usize, fail_msg: &str) -> u128 {
+        if vax_disp != exp_disp {
+            close_enough_inner(vax_disp.to_string(), exp_disp.to_string(), vax_disp, exp_disp, ok_diff, fail_msg)
         }
         else { 0 }
     }
@@ -2097,99 +2101,110 @@ mod tests {
     //
     // There is probably a better way to do this, but this works for now.
     pub fn close_enough_inner(
-        mut disp1: String,
-        mut disp2: String,
-        orig1: &str,
-        orig2: &str,
+        mut vax_disp: String,
+        mut exp_disp: String,
+        vax_orig: &str,
+        exp_orig: &str,
         ok_diff: usize,
         fail_msg: &str,
     ) -> u128 {
         // Test and remove the sign.
-        match disp1.get(0..=0) {
-            Some("+") => if disp1.get(0..=0) == Some("+") {
-                disp1.remove(0);
-                disp2.remove(0);
+        match vax_disp.get(0..=0) {
+            Some("+") => if vax_disp.get(0..=0) == Some("+") {
+                vax_disp.remove(0);
+                exp_disp.remove(0);
             }
             else {
-                panic!("Signs don't match don't match: {}\n left: {:?}\nright: {:?}", fail_msg, orig1, orig2);
+                panic!("Signs don't match don't match: {}\nvax_floating: {:?}\n    expected: {:?}", fail_msg, vax_orig, exp_orig);
             }
-            Some("-") => if disp1.get(0..=0) == Some("-") {
-                disp1.remove(0);
-                disp2.remove(0);
+            Some("-") => if vax_disp.get(0..=0) == Some("-") {
+                vax_disp.remove(0);
+                exp_disp.remove(0);
             }
             else {
-                panic!("Signs don't match don't match: {}\n left: {:?}\nright: {:?}", fail_msg, orig1, orig2);
+                panic!("Signs don't match don't match: {}\nvax_floating: {:?}\n    expected: {:?}", fail_msg, vax_orig, exp_orig);
             }
             _ => {}
         }
         // Check and remove exponent.
-        if disp1.contains(['e', 'E']) {
-            let (rem1, exp1) = disp1.rsplit_once(['e', 'E']).unwrap_or((&disp1, ""));
-            let (rem2, exp2) = disp2.rsplit_once(['e', 'E']).unwrap_or((&disp2, ""));
+        if vax_disp.contains(['e', 'E']) {
+            let (rem1, exp1) = vax_disp.rsplit_once(['e', 'E']).unwrap_or((&vax_disp, "0"));
+            let (rem2, exp2) = exp_disp.rsplit_once(['e', 'E']).unwrap_or((&exp_disp, "0"));
             if exp1 != exp2 {
-                panic!("Exponents don't match: {}\n left: {:?}\nright: {:?}", fail_msg, orig1, orig2);
+                let exp1 = i32::from_str(exp1).unwrap();
+                let exp2 = i32::from_str(exp2).unwrap();
+                // Off by one exponent special case 
+                if 1 == (exp1 - exp2).abs() {
+                    dbg!((&exp1, &exp2));
+                    dbg!((&rem1, &rem2));
+                    dbg!((&vax_disp, &exp_disp));
+                    panic!("Exponents don't match: {}\nvax_floating: {:?}\n    expected: {:?}", fail_msg, vax_orig, exp_orig);
+                }
+                else {
+                    panic!("Exponents don't match: {}\nvax_floating: {:?}\n    expected: {:?}", fail_msg, vax_orig, exp_orig);
+                }
             }
-            disp1.truncate(rem1.len());
-            disp2.truncate(rem2.len());
+            vax_disp.truncate(rem1.len());
+            exp_disp.truncate(rem2.len());
         }
         // Remove decimal places.
-        match(disp1.find('.'), disp2.find('.')) {
+        match(vax_disp.find('.'), exp_disp.find('.')) {
             (Some(p1), Some(p2)) => {
                 if p1 != p2 {
-                    panic!("Decimal points don't line up: {}\n left: {:?}\nright: {:?}", fail_msg,
-                        orig1, orig2);
+                    panic!("Decimal points don't line up: {}\nvax_floating: {:?}\n    expected: {:?}", fail_msg,
+                        vax_orig, exp_orig);
                 }
-                disp1.remove(p1);
-                disp2.remove(p2);
+                vax_disp.remove(p1);
+                exp_disp.remove(p2);
             }
             (None, Some(p2)) => {
-                if disp1.len() != p2 {
-                    panic!("Decimal points don't line up: {}\n left: {:?}\nright: {:?}", fail_msg,
-                        orig1, orig2);
+                if vax_disp.len() != p2 {
+                    panic!("Decimal points don't line up: {}\nvax_floating: {:?}\n    expected: {:?}", fail_msg,
+                        vax_orig, exp_orig);
                 }
-                disp2.remove(p2);
+                exp_disp.remove(p2);
             }
             (Some(p1), None) => {
-                if p1 != disp2.len() {
-                    panic!("Decimal points don't line up: {}\n left: {:?}\nright: {:?}", fail_msg,
-                        orig1, orig2);
+                if p1 != exp_disp.len() {
+                    panic!("Decimal points don't line up: {}\nvax_floating: {:?}\n    expected: {:?}", fail_msg,
+                        vax_orig, exp_orig);
                 }
-                disp1.remove(p1);
+                vax_disp.remove(p1);
             }
             (None, None) => {}
         }
         // Remove leading zeroes and verify that they are the same size.
-        let no_lead1 = disp1.trim_start_matches('0');
-        let no_lead2 = disp2.trim_start_matches('0');
-        if 1 < (disp1.len() - no_lead1.len()).abs_diff(disp2.len() - no_lead2.len()) {
-            panic!("Leading zeroes don't match: {}\n left: {:?}\nright: {:?}", fail_msg, orig1, orig2);
+        let no_lead1 = vax_disp.trim_start_matches('0');
+        let no_lead2 = exp_disp.trim_start_matches('0');
+        if 1 < (vax_disp.len() - no_lead1.len()).abs_diff(exp_disp.len() - no_lead2.len()) {
+            panic!("Leading zeroes don't match: {}\nvax_floating: {:?}\n    expected: {:?}", fail_msg, vax_orig, exp_orig);
         }
         // Trim trailing zeroes and replace any size difference with zeroes.
-        let no_tail1 = disp1.trim_end_matches('0');
-        let no_tail2 = disp2.trim_end_matches('0');
-        let remove_tail = min(disp1.len() - no_tail1.len(), disp2.len() - no_tail2.len());
-        disp1.truncate(disp1.len() - remove_tail);
-        disp2.truncate(disp2.len() - remove_tail);
-        if disp1.len() > disp2.len() {
-            for _ in 0..(disp1.len()-disp2.len()) {
-                disp2.push('0');
+        let no_tail1 = vax_disp.trim_end_matches('0');
+        let no_tail2 = exp_disp.trim_end_matches('0');
+        let remove_tail = min(vax_disp.len() - no_tail1.len(), exp_disp.len() - no_tail2.len());
+        vax_disp.truncate(vax_disp.len() - remove_tail);
+        exp_disp.truncate(exp_disp.len() - remove_tail);
+        if vax_disp.len() > exp_disp.len() {
+            for _ in 0..(vax_disp.len()-exp_disp.len()) {
+                exp_disp.push('0');
             }
         }
-        else if disp1.len() < disp2.len() {
-            for _ in 0..(disp2.len()-disp1.len()) {
-                disp1.push('0');
+        else if vax_disp.len() < exp_disp.len() {
+            for _ in 0..(exp_disp.len()-vax_disp.len()) {
+                vax_disp.push('0');
             }
         }
-        let val1 = i128::from_str_radix(&disp1, 10)
-            .expect(&format!("Failed to convert string to number ({:?}): {}\n left: {:?}\nright: {:?}",
-                &disp1, fail_msg, orig1, orig2));
-        let val2 = i128::from_str_radix(&disp2, 10)
-            .expect(&format!("Failed to convert string to number ({:?}): {}\n left: {:?}\nright: {:?}",
-                &disp2, fail_msg, orig1, orig2));
+        let val1 = i128::from_str_radix(&vax_disp, 10)
+            .expect(&format!("Failed to convert string to number ({:?}): {}\nvax_floating: {:?}\n    expected: {:?}",
+                &vax_disp, fail_msg, vax_orig, exp_orig));
+        let val2 = i128::from_str_radix(&exp_disp, 10)
+            .expect(&format!("Failed to convert string to number ({:?}): {}\nvax_floating: {:?}\n    expected: {:?}",
+                &exp_disp, fail_msg, vax_orig, exp_orig));
         let diff = val1.abs_diff(val2);
         if diff > (ok_diff as u128) {
-            panic!("Values are too far apart ({}): {}\n left: {:?}\nright: {:?}", diff, fail_msg,
-                orig1, orig2);
+            panic!("Values are too far apart ({}): {}\nvax_floating: {:?}\n    expected: {:?}", diff, fail_msg,
+                vax_orig, exp_orig);
         }
         diff
     }
@@ -2198,9 +2213,9 @@ mod tests {
     // compare the f32 to FFloating and f64 to GFloating. There are some rounding differences
     // between the VAX floating-point Display functions. This function compares the two strings and
     // and only compare the `digits` nost-significant digits.
-    pub fn display_close_enough_2(disp1: &str, disp2: &str, digits: usize, precision: bool, fail_msg: &str) -> u128 {
-        if disp1 != disp2 {
-            close_enough_inner_2(disp1.to_string(), disp2.to_string(), disp1, disp2, digits, precision, fail_msg)
+    pub fn display_close_enough_2(vax_float: &str, expected: &str, digits: usize, precision: bool, fail_msg: &str) -> u128 {
+        if vax_float != expected {
+            close_enough_inner_2(vax_float.to_string(), expected.to_string(), vax_float, expected, digits, precision, fail_msg)
         }
         else { 0 }
     }
@@ -2222,80 +2237,81 @@ mod tests {
     // and rounding appropriately. What we want to do extract the portion of the string that we
     // care about and just compare those.
     pub fn close_enough_inner_2(
-        mut disp1: String,
-        mut disp2: String,
-        orig1: &str,
-        orig2: &str,
+        mut vax_disp: String,
+        mut exp_disp: String,
+        vax_orig: &str,
+        exp_orig: &str,
         digits: usize,
         precision: bool,
         fail_msg: &str,
     ) -> u128 {
         // Test and remove the sign.
-        match disp1.get(0..=0) {
-            Some("+") => if disp1.get(0..=0) == Some("+") {
-                disp1.remove(0);
-                disp2.remove(0);
+        match vax_disp.get(0..=0) {
+            Some("+") => if vax_disp.get(0..=0) == Some("+") {
+                vax_disp.remove(0);
+                exp_disp.remove(0);
             }
             else {
-                panic!("Signs don't match don't match: {}\n left: {:?}\nright: {:?}", fail_msg, orig1, orig2);
+                panic!("Signs don't match don't match: {}\nvax_floating: {:?}\n    expected: {:?}", fail_msg, vax_orig, exp_orig);
             }
-            Some("-") => if disp1.get(0..=0) == Some("-") {
-                disp1.remove(0);
-                disp2.remove(0);
+            Some("-") => if vax_disp.get(0..=0) == Some("-") {
+                vax_disp.remove(0);
+                exp_disp.remove(0);
             }
             else {
-                panic!("Signs don't match don't match: {}\n left: {:?}\nright: {:?}", fail_msg, orig1, orig2);
+                panic!("Signs don't match don't match: {}\nvax_floating: {:?}\n    expected: {:?}", fail_msg, vax_orig, exp_orig);
             }
             _ => {}
         }
         // Check and remove exponent.
-        if disp1.contains(['e', 'E']) {
-            let (rem1, exp1) = disp1.rsplit_once(['e', 'E']).unwrap_or((&disp1, ""));
-            let (rem2, exp2) = disp2.rsplit_once(['e', 'E']).unwrap_or((&disp2, ""));
+        if vax_disp.contains(['e', 'E']) {
+            let (rem1, exp1) = vax_disp.rsplit_once(['e', 'E']).unwrap_or((&vax_disp, ""));
+            let (rem2, exp2) = exp_disp.rsplit_once(['e', 'E']).unwrap_or((&exp_disp, ""));
             if exp1 != exp2 {
-                panic!("Exponents don't match: {}\n left: {:?}\nright: {:?}", fail_msg, orig1, orig2);
+
+                panic!("Exponents don't match: {}\nvax_floating: {:?}\n    expected: {:?}", fail_msg, vax_orig, exp_orig);
             }
-            disp1.truncate(rem1.len());
-            disp2.truncate(rem2.len());
+            vax_disp.truncate(rem1.len());
+            exp_disp.truncate(rem2.len());
         }
         // Find location of decimal place and first non-zero digit.
-        let fp1 = match disp1.find('.') {
-            None => disp1.len(),
+        let fp1 = match vax_disp.find('.') {
+            None => vax_disp.len(),
             Some(fp1) => {
-                disp1.remove(fp1);
+                vax_disp.remove(fp1);
                 fp1
             }
         };
-        let fp2 = match disp2.find('.') {
-            None => disp2.len(),
+        let fp2 = match exp_disp.find('.') {
+            None => exp_disp.len(),
             Some(fp2) => {
-                disp2.remove(fp2);
+                exp_disp.remove(fp2);
                 fp2
             }
         };
         if precision {
-            if (disp1.len() - fp1) != (disp2.len() - fp2) {
-                panic!("Precision mismatch: {}\n left: {:?}\nright: {:?}", fail_msg, orig1, orig2);
+            if (vax_disp.len() - fp1) != (exp_disp.len() - fp2) {
+                panic!("Precision mismatch: {}\nvax_floating: {:?}\n    expected: {:?}", fail_msg, vax_orig, exp_orig);
             }
         }
-        let (val1, val2) = match (disp1.find(|c: char| ('1' <= c) && ('9' >= c)),
-            disp2.find(|c: char| ('1' <= c) && ('9' >= c)))
+        let (val1, val2) = match (vax_disp.find(|c: char| ('1' <= c) && ('9' >= c)),
+            exp_disp.find(|c: char| ('1' <= c) && ('9' >= c)))
         {
             (None, None) => (0, 0),
             (Some(digit1), None) => (
-                u128::from_str_radix(&disp1[digit1..min(digit1+digits, disp1.len())], 10)
-                    .expect(&format!("Failed to convert string to number ({:?}): {}\n left: {:?}\nright: {:?}",
-                    &disp1, fail_msg, orig1, orig2)),
+                u128::from_str_radix(&vax_disp[digit1..min(digit1+digits, vax_disp.len())], 10)
+                    .expect(&format!("Failed to convert string to number ({:?}): {}\nvax_floating: {:?}\n    expected: {:?}",
+                    &vax_disp, fail_msg, vax_orig, exp_orig)),
                 0),
             (None, Some(digit2)) => (0,
-                u128::from_str_radix(&disp2[digit2..min(digit2+digits, disp2.len())], 10)
-                    .expect(&format!("Failed to convert string to number ({:?}): {}\n left: {:?}\nright: {:?}",
-                    &disp2, fail_msg, orig1, orig2))),
+                u128::from_str_radix(&exp_disp[digit2..min(digit2+digits, exp_disp.len())], 10)
+                    .expect(&format!("Failed to convert string to number ({:?}): {}\nvax_floating: {:?}\n    expected: {:?}",
+                    &exp_disp, fail_msg, vax_orig, exp_orig))),
             (Some(digit1), Some(digit2)) => {
                 let offset = min((digit1 as isize)-(fp1 as isize), (digit2 as isize)-(fp2 as isize));
                 let start1 = if 0 > ((fp1 as isize)+offset) {
                     for _ in 0..((fp1 as isize)+offset).unsigned_abs() {
-                        disp1.insert(0, '0');
+                        vax_disp.insert(0, '0');
                     }
                     0
                 }
@@ -2304,45 +2320,45 @@ mod tests {
                 };
                 let start2 = if 0 > ((fp2 as isize)+offset) {
                     for _ in 0..((fp2 as isize)+offset).unsigned_abs() {
-                        disp2.insert(0, '0');
+                        exp_disp.insert(0, '0');
                     }
                     0
                 }
                 else {
                     ((fp2 as isize)+offset) as usize
                 };
-                let mut target_len = max(disp1.len()-start1, disp2.len()-start2);
+                let mut target_len = max(vax_disp.len()-start1, exp_disp.len()-start2);
                 if target_len > digits { target_len = digits; }
-                if disp1.len()-start1 > target_len {
-                    disp1.truncate(start1 + target_len);
+                if vax_disp.len()-start1 > target_len {
+                    vax_disp.truncate(start1 + target_len);
                 }
-                else if disp1.len()-start1 < target_len {
-                    for _ in 0..(target_len+start1-disp1.len()) {
-                        disp1.push('0');
+                else if vax_disp.len()-start1 < target_len {
+                    for _ in 0..(target_len+start1-vax_disp.len()) {
+                        vax_disp.push('0');
                     }
                 }
-                if disp2.len()-start2 > target_len {
-                    disp2.truncate(start2 + target_len);
+                if exp_disp.len()-start2 > target_len {
+                    exp_disp.truncate(start2 + target_len);
                 }
-                else if disp2.len()-start2 < target_len {
-                    for _ in 0..(target_len+start2-disp2.len()) {
-                        disp2.push('0');
+                else if exp_disp.len()-start2 < target_len {
+                    for _ in 0..(target_len+start2-exp_disp.len()) {
+                        exp_disp.push('0');
                     }
                 }
                 (
-                    u128::from_str_radix(&disp1[start1..], 10)
-                        .expect(&format!("Failed to convert string to number ({:?}): {}\n left: {:?}\nright: {:?}",
-                        &disp1, fail_msg, orig1, orig2)),
-                    u128::from_str_radix(&disp2[start2..], 10)
-                        .expect(&format!("Failed to convert string to number ({:?}): {}\n left: {:?}\nright: {:?}",
-                        &disp1, fail_msg, orig1, orig2))
+                    u128::from_str_radix(&vax_disp[start1..], 10)
+                        .expect(&format!("Failed to convert string to number ({:?}): {}\nvax_floating: {:?}\n    expected: {:?}",
+                        &vax_disp, fail_msg, vax_orig, exp_orig)),
+                    u128::from_str_radix(&exp_disp[start2..], 10)
+                        .expect(&format!("Failed to convert string to number ({:?}): {}\nvax_floating: {:?}\n    expected: {:?}",
+                        &vax_disp, fail_msg, vax_orig, exp_orig))
                 )
             }
         };
         let diff = val1.abs_diff(val2);
         if diff > (1 as u128) {
-            panic!("Values are too far apart ({}): {}\n left: {:?}\nright: {:?}", diff, fail_msg,
-                orig1, orig2);
+            panic!("Values are too far apart ({}): {}\nvax_floating: {:?}\n    expected: {:?}", diff, fail_msg,
+                vax_orig, exp_orig);
         }
         diff
     }
@@ -2351,7 +2367,6 @@ mod tests {
         ($fmt: literal, $floating: ident, $fx: ident, $text: ident) => {
             let vax_float = format!($fmt, $floating);
             let rust_float = format!($fmt, $fx);
-            dbg!(&$text);
             display_close_enough(&vax_float, &rust_float, 2, &format!("input string = {:?}", $text));
         };
     }
@@ -2608,6 +2623,167 @@ mod tests {
         assert_eq!(HFloating::from_bits(0x800040008000).to_result(), Err(Error::Underflow(Some(-32768))));
     }
 
+    macro_rules! assert_is_overflow {
+        ($test:expr) => {
+            match $test {
+                Err(Error::Overflow(_)) => {}
+                not_good => {
+                    panic!("{} was expected to be Err(Error::Overflow(_)) but was {:?} instead.",
+                        stringify!($test), not_good);
+                }
+            }
+        };
+    }
+
+    macro_rules! assert_is_underflow {
+        ($test:expr) => {
+            match $test {
+                Err(Error::Underflow(_)) => {}
+                not_good => {
+                    panic!("{} was expected to be Err(Error::Underflow(_)) but was {:?} instead.",
+                        stringify!($test), not_good);
+                }
+            }
+        };
+    }
+
+    /// If an operation is applied to an invalid value, it shouldn't convert it into a valid value.
+    macro_rules! vax_reserved_op_test {
+        ($name:ident, $unary:ident()) => {
+            #[test]
+            fn $name() {
+                assert_eq!(FFloating::from_bits(0x8000).$unary().to_result(), Err(Error::DivByZero));
+                assert_eq!(DFloating::from_bits(0x8000).$unary().to_result(), Err(Error::DivByZero));
+                assert_eq!(GFloating::from_bits(0x8000).$unary().to_result(), Err(Error::DivByZero));
+                assert_eq!(HFloating::from_bits(0x8000).$unary().to_result(), Err(Error::DivByZero));
+                assert_eq!(FFloating::from_bits(0x8060).$unary().to_result(), Err(Error::Reserved));
+                assert_eq!(DFloating::from_bits(0x8060).$unary().to_result(), Err(Error::Reserved));
+                assert_eq!(GFloating::from_bits(0x800C).$unary().to_result(), Err(Error::Reserved));
+                assert_eq!(HFloating::from_bits(0xC0008000).$unary().to_result(), Err(Error::Reserved));
+                assert_eq!(FFloating::from_bits(0x8040).$unary().to_result(), Err(Error::Overflow(None)));
+                assert_eq!(DFloating::from_bits(0x8040).$unary().to_result(), Err(Error::Overflow(None)));
+                assert_eq!(GFloating::from_bits(0x8008).$unary().to_result(), Err(Error::Overflow(None)));
+                assert_eq!(HFloating::from_bits(0x80008000).$unary().to_result(), Err(Error::Overflow(None)));
+                assert_eq!(FFloating::from_bits(0x8020).$unary().to_result(), Err(Error::Underflow(None)));
+                assert_eq!(DFloating::from_bits(0x8020).$unary().to_result(), Err(Error::Underflow(None)));
+                assert_eq!(GFloating::from_bits(0x8004).$unary().to_result(), Err(Error::Underflow(None)));
+                assert_eq!(HFloating::from_bits(0x40008000).$unary().to_result(), Err(Error::Underflow(None)));
+                assert_eq!(FFloating::from_bits(0xFFFF8040).$unary().to_result(), Err(Error::Overflow(Some(65535))));
+                assert_eq!(DFloating::from_bits(0xFFFF8040).$unary().to_result(), Err(Error::Overflow(Some(65535))));
+                assert_eq!(GFloating::from_bits(0xFFFF8008).$unary().to_result(), Err(Error::Overflow(Some(65535))));
+                assert_eq!(HFloating::from_bits(0xFFFF80008000).$unary().to_result(), Err(Error::Overflow(Some(65535))));
+                assert_eq!(FFloating::from_bits(0x80008020).$unary().to_result(), Err(Error::Underflow(Some(-32768))));
+                assert_eq!(DFloating::from_bits(0x80008020).$unary().to_result(), Err(Error::Underflow(Some(-32768))));
+                assert_eq!(GFloating::from_bits(0x80008004).$unary().to_result(), Err(Error::Underflow(Some(-32768))));
+                assert_eq!(HFloating::from_bits(0x800040008000).$unary().to_result(), Err(Error::Underflow(Some(-32768))));
+            }
+        };
+        ($name:ident, $operator:ident(FFloating)) => {
+            proptest! {
+                #[test]
+                fn $name(
+                    other in any::<FFloating>(),
+                ) {
+                    assert_eq!(FFloating::from_bits(0x8000).$operator(other).to_result(), Err(Error::DivByZero));
+                    assert_eq!(FFloating::from_bits(0x8060).$operator(other).to_result(), Err(Error::Reserved));
+                    assert_eq!(FFloating::from_bits(0x8040).$operator(other).to_result(), Err(Error::Overflow(None)));
+                    assert_eq!(FFloating::from_bits(0x8020).$operator(other).to_result(), Err(Error::Underflow(None)));
+                    assert_is_overflow!(FFloating::from_bits(0xFFFF8040).$operator(other).to_result());
+                    assert_is_underflow!(FFloating::from_bits(0x80008020).$operator(other).to_result());
+                    assert_eq!(other.$operator(FFloating::from_bits(0x8000)).to_result(), Err(Error::DivByZero));
+                    assert_eq!(other.$operator(FFloating::from_bits(0x8060)).to_result(), Err(Error::Reserved));
+                    assert_eq!(other.$operator(FFloating::from_bits(0x8040)).to_result(), Err(Error::Overflow(None)));
+                    assert_eq!(other.$operator(FFloating::from_bits(0x8020)).to_result(), Err(Error::Underflow(None)));
+                    assert_is_overflow!(other.$operator(FFloating::from_bits(0xFFFF8040)).to_result());
+                    assert_is_underflow!(other.$operator(FFloating::from_bits(0x80008020)).to_result());
+                }
+            }
+        };
+        ($name:ident, $operator:ident(DFloating)) => {
+            proptest! {
+                #[test]
+                fn $name(
+                    other in any::<DFloating>(),
+                ) {
+                    assert_eq!(DFloating::from_bits(0x8000).$operator(other).to_result(), Err(Error::DivByZero));
+                    assert_eq!(DFloating::from_bits(0x8060).$operator(other).to_result(), Err(Error::Reserved));
+                    assert_eq!(DFloating::from_bits(0x8040).$operator(other).to_result(), Err(Error::Overflow(None)));
+                    assert_eq!(DFloating::from_bits(0x8020).$operator(other).to_result(), Err(Error::Underflow(None)));
+                    assert_is_overflow!(DFloating::from_bits(0xFFFF8040).$operator(other).to_result());
+                    assert_is_underflow!(DFloating::from_bits(0x80008020).$operator(other).to_result());
+                    assert_eq!(other.$operator(DFloating::from_bits(0x8000)).to_result(), Err(Error::DivByZero));
+                    assert_eq!(other.$operator(DFloating::from_bits(0x8060)).to_result(), Err(Error::Reserved));
+                    assert_eq!(other.$operator(DFloating::from_bits(0x8040)).to_result(), Err(Error::Overflow(None)));
+                    assert_eq!(other.$operator(DFloating::from_bits(0x8020)).to_result(), Err(Error::Underflow(None)));
+                    assert_is_overflow!(other.$operator(DFloating::from_bits(0xFFFF8040)).to_result());
+                    assert_is_underflow!(other.$operator(DFloating::from_bits(0x80008020)).to_result());
+                }
+            }
+        };
+        ($name:ident, $operator:ident(GFloating)) => {
+            proptest! {
+                #[test]
+                fn $name(
+                    other in any::<GFloating>(),
+                ) {
+                    assert_eq!(GFloating::from_bits(0x8000).$operator(other).to_result(), Err(Error::DivByZero));
+                    assert_eq!(GFloating::from_bits(0x800C).$operator(other).to_result(), Err(Error::Reserved));
+                    assert_eq!(GFloating::from_bits(0x8008).$operator(other).to_result(), Err(Error::Overflow(None)));
+                    assert_eq!(GFloating::from_bits(0x8004).$operator(other).to_result(), Err(Error::Underflow(None)));
+                    assert_is_overflow!(GFloating::from_bits(0xFFFF8008).$operator(other).to_result());
+                    assert_is_underflow!(GFloating::from_bits(0x80008004).$operator(other).to_result());
+                    assert_eq!(other.$operator(GFloating::from_bits(0x8000)).to_result(), Err(Error::DivByZero));
+                    assert_eq!(other.$operator(GFloating::from_bits(0x800C)).to_result(), Err(Error::Reserved));
+                    assert_eq!(other.$operator(GFloating::from_bits(0x8008)).to_result(), Err(Error::Overflow(None)));
+                    assert_eq!(other.$operator(GFloating::from_bits(0x8004)).to_result(), Err(Error::Underflow(None)));
+                    assert_is_overflow!(other.$operator(GFloating::from_bits(0xFFFF8008)).to_result());
+                    assert_is_underflow!(other.$operator(GFloating::from_bits(0x80008004)).to_result());
+                }
+            }
+        };
+        ($name:ident, $operator:ident(HFloating)) => {
+            proptest! {
+                #[test]
+                fn $name(
+                    other in any::<HFloating>(),
+                ) {
+                    assert_eq!(HFloating::from_bits(0x8000).$operator(other).to_result(), Err(Error::DivByZero));
+                    assert_eq!(HFloating::from_bits(0xC0008000).$operator(other).to_result(), Err(Error::Reserved));
+                    assert_eq!(HFloating::from_bits(0x80008000).$operator(other).to_result(), Err(Error::Overflow(None)));
+                    assert_eq!(HFloating::from_bits(0x40008000).$operator(other).to_result(), Err(Error::Underflow(None)));
+                    assert_is_overflow!(HFloating::from_bits(0xFFFF80008000).$operator(other).to_result());
+                    assert_is_underflow!(HFloating::from_bits(0x800040008000).$operator(other).to_result());
+                    assert_eq!(other.$operator(HFloating::from_bits(0x8000)).to_result(), Err(Error::DivByZero));
+                    assert_eq!(other.$operator(HFloating::from_bits(0xC0008000)).to_result(), Err(Error::Reserved));
+                    assert_eq!(other.$operator(HFloating::from_bits(0x80008000)).to_result(), Err(Error::Overflow(None)));
+                    assert_eq!(other.$operator(HFloating::from_bits(0x40008000)).to_result(), Err(Error::Underflow(None)));
+                    assert_is_overflow!(other.$operator(HFloating::from_bits(0xFFFF80008000)).to_result());
+                    assert_is_underflow!(other.$operator(HFloating::from_bits(0x800040008000)).to_result());
+                }
+            }
+        };
+    }
+
+    // Perform tests to verify that operations do not convert reserved values into valid ones.
+    vax_reserved_op_test!(test_reserved_abs, abs());
+    vax_reserved_op_test!(test_reserved_negate, negate());
+    vax_reserved_op_test!(test_reserved_add_to_ffloat, add_to(FFloating));
+    vax_reserved_op_test!(test_reserved_add_to_dfloat, add_to(DFloating));
+    vax_reserved_op_test!(test_reserved_add_to_gfloat, add_to(GFloating));
+    vax_reserved_op_test!(test_reserved_add_to_hfloat, add_to(HFloating));
+    vax_reserved_op_test!(test_reserved_subtract_by_ffloat, subtract_by(FFloating));
+    vax_reserved_op_test!(test_reserved_subtract_by_dfloat, subtract_by(DFloating));
+    vax_reserved_op_test!(test_reserved_subtract_by_gfloat, subtract_by(GFloating));
+    vax_reserved_op_test!(test_reserved_subtract_by_hfloat, subtract_by(HFloating));
+    vax_reserved_op_test!(test_reserved_multiply_by_ffloat, multiply_by(FFloating));
+    vax_reserved_op_test!(test_reserved_multiply_by_dfloat, multiply_by(DFloating));
+    vax_reserved_op_test!(test_reserved_multiply_by_gfloat, multiply_by(GFloating));
+    vax_reserved_op_test!(test_reserved_multiply_by_hfloat, multiply_by(HFloating));
+    vax_reserved_op_test!(test_reserved_divide_by_ffloat, divide_by(FFloating));
+    vax_reserved_op_test!(test_reserved_divide_by_dfloat, divide_by(DFloating));
+    vax_reserved_op_test!(test_reserved_divide_by_gfloat, divide_by(GFloating));
+    vax_reserved_op_test!(test_reserved_divide_by_hfloat, divide_by(HFloating));
+
     macro_rules! ilog10_test {
         ($ux: ty) => {
             let mut value: $ux = <$ux>::MAX;
@@ -2646,15 +2822,26 @@ mod tests {
         ilog10_test!(u128);
     }
 
+    // This is a minor display bug I am not going to hunt down at this time. It should strip the
+    // trailing zeroes.
     #[test]
     #[ignore]
     fn minor_display_bug_1() {
         const TENTH: DFloating = DFloating::from_ascii("0.1");
         const ONE_HUNDRED: FFloating = FFloating::from_u8(100);
+        assert_eq!(&format!("{:e}", TENTH), "1e-1");
+        assert_eq!(&format!("{:e}", ONE_HUNDRED), "1e2");   // Fails with 1.00e2
+    }
+
+    // This is a minor display bug I am not going to hunt down at this time. It should strip the
+    // trailing zeroes.
+    #[test]
+    #[ignore]
+    fn minor_display_bug_2() {
+        const TENTH: DFloating = DFloating::from_ascii("0.1");
         const MANY_ZEROES: HFloating = HFloating::from_u128(
             100_000_000_000_000_000_000_000_000_000_000u128);
         assert_eq!(&format!("{:e}", TENTH), "1e-1");
-        assert_eq!(&format!("{:e}", ONE_HUNDRED), "1e2");   // Fails with 1.00e2
         assert_eq!(&format!("{:E}", MANY_ZEROES), "1E32");  // Fails with 1.00000000000000000000000000000000E32
     }
 
@@ -2713,4 +2900,105 @@ mod tests {
             assert_eq!(h_float, HFloating::from_str(&float_as_text).unwrap());
         }
     }
+
+    macro_rules! op_assign_test {
+        ($name:ident, $ftype:ident, $op:tt, $op_assign:tt) => {
+            proptest! {
+                #[test]
+                fn $name(
+                    v1 in any::<$ftype>(),
+                    v2 in any::<$ftype>(),
+                ) {
+                    let mut initial = v1;
+                    let expected = initial $op v2;
+                    initial $op_assign v2;
+                    assert_eq!(initial, expected,
+                        "Operator assignment test failed for '{}': {} {} {} != {}",
+                        stringify!($op_assign), v1, stringify!($op), v2, initial);
+                }
+            }
+        };
+        ($name:ident, $ftype:ident, $op:tt, $op_assign:tt, $v2_type:ident) => {
+            proptest! {
+                #[test]
+                fn $name(
+                    v1 in any::<$ftype>(),
+                    v2 in any::<$v2_type>(),
+                ) {
+                    let mut initial = v1;
+                    let expected = initial $op v2;
+                    initial $op_assign v2;
+                    assert_eq!(initial, expected,
+                        "Operator assignment test failed for '{}': {} {} {} != {}",
+                        stringify!($op_assign), v1, stringify!($op), v2, initial);
+                }
+            }
+        };
+    }
+
+    op_assign_test!(test_add_assign_ffloat, FFloating, +, +=);
+    op_assign_test!(test_sub_assign_ffloat, FFloating, -, -=);
+    op_assign_test!(test_mul_assign_ffloat, FFloating, *, *=);
+    op_assign_test!(test_div_assign_ffloat, FFloating, /, /=);
+    op_assign_test!(test_shr_assign_ffloat, FFloating, >>, >>=, u32);
+    op_assign_test!(test_shl_assign_ffloat, FFloating, <<, <<=, u32);
+    op_assign_test!(test_add_assign_dfloat, DFloating, +, +=);
+    op_assign_test!(test_sub_assign_dfloat, DFloating, -, -=);
+    op_assign_test!(test_mul_assign_dfloat, DFloating, *, *=);
+    op_assign_test!(test_div_assign_dfloat, DFloating, /, /=);
+    op_assign_test!(test_shr_assign_dfloat, DFloating, >>, >>=, u32);
+    op_assign_test!(test_shl_assign_dfloat, DFloating, <<, <<=, u32);
+    op_assign_test!(test_add_assign_gfloat, GFloating, +, +=);
+    op_assign_test!(test_sub_assign_gfloat, GFloating, -, -=);
+    op_assign_test!(test_mul_assign_gfloat, GFloating, *, *=);
+    op_assign_test!(test_div_assign_gfloat, GFloating, /, /=);
+    op_assign_test!(test_shr_assign_gfloat, GFloating, >>, >>=, u32);
+    op_assign_test!(test_shl_assign_gfloat, GFloating, <<, <<=, u32);
+    op_assign_test!(test_add_assign_hfloat, HFloating, +, +=);
+    op_assign_test!(test_sub_assign_hfloat, HFloating, -, -=);
+    op_assign_test!(test_mul_assign_hfloat, HFloating, *, *=);
+    op_assign_test!(test_div_assign_hfloat, HFloating, /, /=);
+    op_assign_test!(test_shr_assign_hfloat, HFloating, >>, >>=, u32);
+    op_assign_test!(test_shl_assign_hfloat, HFloating, <<, <<=, u32);
+
+    macro_rules! test_subnormal_range {
+        ($name:ident, $ftype:ident, $to_fx:ident, $display:literal) => {
+            #[test]
+            fn $name() {
+                let subnormal = $ftype::MIN_POSITIVE.$to_fx();
+                assert_eq!(format!("{:e}", subnormal), format!($display, $ftype::MIN_POSITIVE));
+            }
+        };
+    }
+
+    test_subnormal_range!(test_subnormal_range_ffloat, FFloating, to_f32, "{:e}");
+    test_subnormal_range!(test_subnormal_range_dfloat, DFloating, to_f32, "{:e}");
+    test_subnormal_range!(test_subnormal_range_gfloat, GFloating, to_f64, "{:e}");
+
+    #[test]
+    fn test_subnormal_from_f64_to_f32() {
+        let very_small_f64 = 1e-300_f64;
+        let very_small = GFloating::from_f64(very_small_f64);
+        println!("very_small = {:e} (f64), {:e} (GFloating)", very_small_f64, very_small);
+        let from_f64 = very_small_f64 as f32;
+        let from_gfloat = very_small.to_f32();
+        assert_eq!(from_gfloat, from_f64);
+    }
+
+    macro_rules! test_epsilon {
+        ($name:ident, $ftype:ident) => {
+            #[test]
+            fn $name() {
+                let one = $ftype::from_parts(Sign::Positive, 1, 0);
+                assert_eq!($ftype::from_u8(1), one);
+                let next = $ftype::from_parts(Sign::Positive, 1, 1);
+                assert_eq!(next.subtract_by(one), $ftype::EPSILON);
+            }
+        };
+    }
+
+    test_epsilon!(test_epsilon_ffloat, FFloating);
+    test_epsilon!(test_epsilon_dfloat, DFloating);
+    test_epsilon!(test_epsilon_gfloat, GFloating);
+    test_epsilon!(test_epsilon_hfloat, HFloating);
 }
