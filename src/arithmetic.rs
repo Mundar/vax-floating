@@ -1856,7 +1856,7 @@ macro_rules! to_from_rust_fp_impl {
             const EXP_MASK: $fu = (1 << $exp) - 1;
             const EXP_BIAS: i32 = (1 << ($exp - 1)) - 2;
             const FRAC_MASK: $fu = (1 << EXP_SHIFT) - 1;
-            const MAX_NEGATIVE: $fx = fp_from_bits!($fx, $fu, SIGN+1);
+            //const MAX_NEGATIVE: $fx = fp_from_bits!($fx, $fu, SIGN+1);
             const FRAC_SHIFT: u32 = <$ux>::BITS - $fx::MANTISSA_DIGITS;
             const ROUND: $ux = 1 << (FRAC_SHIFT - 1);
             const HIGH_BIT: $ux = 1 << (<$ux>::BITS - 1);
@@ -1881,14 +1881,11 @@ macro_rules! to_from_rust_fp_impl {
                             // Un-normalize the fraction for subnormal numbers.
                             let adjust = ($fx::MIN_EXP as i32) - self.exp;
                             if adjust >= ($fx::MANTISSA_DIGITS as i32) {
-                                match self.sign {
-                                    Sign::Positive => { return $fx::MIN_POSITIVE; }
-                                    Sign::Negative => { return MAX_NEGATIVE; }
-                                }
+                                return 0.0;
                             }
                             else {
                                 debug_assert!(adjust > 0);
-                                self.exp += adjust;
+                                self.exp += adjust - 1;
                                 self.frac >>= adjust;
                                 self.frac += ROUND;
                             }

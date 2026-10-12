@@ -669,7 +669,7 @@ macro_rules! floating_impl {
             /// This is the difference between `1.0` and the next larger representable number.
             ///
             /// [Machine epsilon]: https://en.wikipedia.org/wiki/Machine_epsilon
-            pub const EPSILON: $SelfT = $SelfT::from_parts(Sign::Positive, Self::EXP_BIAS + 1 - (Self::MANTISSA_DIGITS as i32), 0);
+            pub const EPSILON: $SelfT = $SelfT::from_parts(Sign::Positive, 2 - (Self::MANTISSA_DIGITS as i32), 0);
 
             #[doc = concat!("Smallest finite `", stringify!($SelfT), "` value.")]
             pub const MIN: $SelfT =
@@ -1055,11 +1055,14 @@ macro_rules! floating_impl {
             #[doc = concat!("    assert_eq!(", stringify!($SelfT), "::from_f32(*case).abs(), ", stringify!($SelfT), "::from_f32(*abs));")]
             ///
             /// // An old bug allowed a reserved operand error to be removed by abs.
-            #[doc = concat!("    assert_eq!(", stringify!($SelfT), "::from_u8(1).divide_by(", stringify!($SelfT), "::from_u8(0)).abs().into(), Err(Error::DivByZero));")]
+            #[doc = concat!("    assert!(", stringify!($SelfT), "::from_u8(1).divide_by(", stringify!($SelfT), "::from_u8(0)).abs().is_reserved());")]
             /// }
             /// ```
             #[inline]
-            pub const fn abs(self) -> Self { Self(self.0 & !Self::SIGN) }
+            pub const fn abs(self) -> Self {
+                if 0 != (self.0 & Self::EXP_MASK) { Self(self.0 & !Self::SIGN) }
+                else { self }
+            }
 
             #[doc = concat!("Negate the sign of the `", stringify!($SelfT), "` value.")]
             ///
@@ -1689,7 +1692,7 @@ macro_rules! floating_impl {
         impl AddAssign for $SelfT {
             #[inline]
             fn add_assign(&mut self, other: $SelfT) {
-                *self = *self / other;
+                *self = *self + other;
             }
         }
         forward_ref_op_assign! { impl AddAssign, add_assign for $SelfT, $SelfT }
@@ -1706,7 +1709,7 @@ macro_rules! floating_impl {
         impl SubAssign for $SelfT {
             #[inline]
             fn sub_assign(&mut self, other: $SelfT) {
-                *self = *self / other;
+                *self = *self - other;
             }
         }
         forward_ref_op_assign! { impl SubAssign, sub_assign for $SelfT, $SelfT }
@@ -2115,14 +2118,14 @@ mod tests {
                 exp_disp.remove(0);
             }
             else {
-                panic!("Signs don't match don't match: {}\nvax_floating: {:?}\n    expected: {:?}", fail_msg, vax_orig, exp_orig);
+                panic!("Signs don't match: {}\nvax_floating: {:?}\n    expected: {:?}", fail_msg, vax_orig, exp_orig);
             }
             Some("-") => if vax_disp.get(0..=0) == Some("-") {
                 vax_disp.remove(0);
                 exp_disp.remove(0);
             }
             else {
-                panic!("Signs don't match don't match: {}\nvax_floating: {:?}\n    expected: {:?}", fail_msg, vax_orig, exp_orig);
+                panic!("Signs don't match: {}\nvax_floating: {:?}\n    expected: {:?}", fail_msg, vax_orig, exp_orig);
             }
             _ => {}
         }
@@ -2133,12 +2136,22 @@ mod tests {
             if exp1 != exp2 {
                 let exp1 = i32::from_str(exp1).unwrap();
                 let exp2 = i32::from_str(exp2).unwrap();
-                // Off by one exponent special case 
+                // Off by one exponent special case (1.0000e(x) & 9.9999e(x-1))
                 if 1 == (exp1 - exp2).abs() {
-                    dbg!((&exp1, &exp2));
-                    dbg!((&rem1, &rem2));
-                    dbg!((&vax_disp, &exp_disp));
-                    panic!("Exponents don't match: {}\nvax_floating: {:?}\n    expected: {:?}", fail_msg, vax_orig, exp_orig);
+                    let ((one, zeroes), (nine, nines)) = if exp1 > exp2 {
+                        (rem1.split_once('.').unwrap(), rem2.split_once('.').unwrap())
+                    }
+                    else {
+                        (rem2.split_once('.').unwrap(), rem1.split_once('.').unwrap())
+                    };
+                    if (one == "1") && (nine == "9") && zeroes.trim_matches('0').is_empty()
+                        && nines.trim_matches('9').is_empty()
+                    {
+                        return 1;
+                    }
+                    else {
+                        panic!("Exponents don't match: {}\nvax_floating: {:?}\n    expected: {:?}", fail_msg, vax_orig, exp_orig);
+                    }
                 }
                 else {
                     panic!("Exponents don't match: {}\nvax_floating: {:?}\n    expected: {:?}", fail_msg, vax_orig, exp_orig);
@@ -2784,6 +2797,24 @@ mod tests {
     vax_reserved_op_test!(test_reserved_divide_by_gfloat, divide_by(GFloating));
     vax_reserved_op_test!(test_reserved_divide_by_hfloat, divide_by(HFloating));
 
+    macro_rules! test_abs {
+        ($name:ident, $ftype:ident) => {
+            proptest! {
+                #[test]
+                fn $name(
+                    value in any::<$ftype>(),
+                ) {
+                    assert_eq!(Sign::Positive, value.abs().sign());
+                }
+            }
+        };
+    }
+
+    test_abs!(test_abs_ffloat, FFloating);
+    test_abs!(test_abs_dfloat, DFloating);
+    test_abs!(test_abs_gfloat, GFloating);
+    test_abs!(test_abs_hfloat, HFloating);
+
     macro_rules! ilog10_test {
         ($ux: ty) => {
             let mut value: $ux = <$ux>::MAX;
@@ -2969,10 +3000,19 @@ mod tests {
                 assert_eq!(format!("{:e}", subnormal), format!($display, $ftype::MIN_POSITIVE));
             }
         };
+        ($name:ident, $ftype:ident, $to_fx:ident, $from_fx:ident, $display:literal) => {
+            #[test]
+            fn $name() {
+                let subnormal = $ftype::MIN_POSITIVE.$to_fx();
+                assert_eq!(format!("{:e}", subnormal), format!($display, $ftype::MIN_POSITIVE));
+                let round_trip = $ftype::$from_fx(subnormal);
+                assert_eq!(round_trip, $ftype::MIN_POSITIVE);
+            }
+        };
     }
 
-    test_subnormal_range!(test_subnormal_range_ffloat, FFloating, to_f32, "{:e}");
-    test_subnormal_range!(test_subnormal_range_dfloat, DFloating, to_f32, "{:e}");
+    test_subnormal_range!(test_subnormal_range_ffloat, FFloating, to_f32, from_f32, "{:e}");
+    test_subnormal_range!(test_subnormal_range_dfloat, DFloating, to_f32, "{:.6e}");
     test_subnormal_range!(test_subnormal_range_gfloat, GFloating, to_f64, "{:e}");
 
     #[test]
